@@ -113,7 +113,9 @@ async function parseJsonResponse(response) {
 }
 
 export async function fetchAuthConfig() {
-  const response = await fetch(apiUrl('/api/auth/config'));
+  const response = await fetch(apiUrl('/api/auth/config'), {
+    cache: 'no-store'
+  });
   return parseJsonResponse(response);
 }
 

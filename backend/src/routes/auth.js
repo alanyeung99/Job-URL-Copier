@@ -28,6 +28,7 @@ export function createAuthRouter(apiKey) {
   const router = Router();
 
   router.get('/config', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     res.json({
       ok: true,
       googleClientId: process.env.GOOGLE_CLIENT_ID || '',
