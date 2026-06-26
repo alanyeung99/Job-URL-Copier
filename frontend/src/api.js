@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'jobrightDashboardSession';
 
-const API_BASE = String(import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+const API_BASE = import.meta.env.VITE_API_URL ?
+      String(import.meta.env.VITE_API_URL).replace(/\/+$/, '')
+      : null;
 
 function apiUrl(path) {
   const normalized = path.startsWith('/') ? path : `/${path}`;
