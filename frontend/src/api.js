@@ -1,7 +1,7 @@
 const STORAGE_KEY = 'jobrightDashboardSession';
 
 const API_BASE = import.meta.env.VITE_API_URL ?
-      String(import.meta.env.VITE_API_URL).replace(/\/+$/, '')
+      String(import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
       : null;
 
 function apiUrl(path) {
@@ -101,11 +101,21 @@ function googleTokenExpired(session) {
   return expiresAt < Date.now() + 60_000;
 }
 
+function promiseWithTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_resolve, reject) => {
+      setTimeout(() => reject(new Error('Request timed out.')), ms);
+    })
+  ]);
+}
+
 async function parseJsonResponse(response) {
   let data = {};
   try {
     data = await response.json();
   } catch (_error) {
+    console.error('Error parsing JSON response', _error);
     // Ignore non-JSON bodies.
   }
   if (!response.ok || data.ok === false) {
@@ -204,11 +214,11 @@ export async function restoreSession(authConfig) {
   let user = saved.user || null;
   let settings = null;
 
-  if (googleTokenExpired(saved) && authConfig?.googleClientId) {
+  if (saved.googleAccessToken && googleTokenExpired(saved) && authConfig?.googleClientId) {
     try {
-      const refreshed = await requestGoogleAccessToken(
-        authConfig.googleClientId,
-        authConfig.scopes
+      const refreshed = await promiseWithTimeout(
+        requestGoogleAccessToken(authConfig.googleClientId, authConfig.scopes),
+        10_000
       );
       googleAccessToken = refreshed.accessToken;
       googleAccessTokenExpiresAt = refreshed.expiresAt;

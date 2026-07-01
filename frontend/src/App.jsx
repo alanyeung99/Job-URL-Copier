@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
   clearSession,
   createWebSession,
@@ -39,19 +40,41 @@ function settingsPayload(settings, overrides = {}) {
   };
 }
 
-function resolvePreviewSpreadsheetId(settings) {
-  return (
-    settings?.selectedSheet?.spreadsheetId ||
-    settings?.registeredSpreadsheets?.[0]?.spreadsheetId ||
-    null
-  );
-}
-
 const NAV_ITEMS = [
-  { id: 'spreadsheets', label: 'Spreadsheets' },
-  { id: 'filters', label: 'Filters' },
-  { id: 'preview', label: 'Preview' }
+  {
+    id: 'spreadsheets',
+    label: 'Spreadsheets',
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5z" />
+        <path d="M8 7h8M8 11h8M8 15h5" />
+      </svg>
+    )
+  },
+  {
+    id: 'filters',
+    label: 'Filters',
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 6h16M7 12h10M10 18h4" />
+      </svg>
+    )
+  },
+  {
+    id: 'preview',
+    label: 'Preview',
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 6h16v12H4V6z" />
+        <path d="M8 10h8M8 14h5" />
+      </svg>
+    )
+  }
 ];
+
+function userInitial(email) {
+  return (String(email || '?')[0] || '?').toUpperCase();
+}
 
 export default function App() {
   const [authConfig, setAuthConfig] = useState(null);
@@ -61,11 +84,11 @@ export default function App() {
   const [newSheetName, setNewSheetName] = useState('');
   const [newSheetUrl, setNewSheetUrl] = useState('');
   const [showAddSpreadsheetForm, setShowAddSpreadsheetForm] = useState(false);
+  const [previewSpreadsheetId, setPreviewSpreadsheetId] = useState('');
   const [sheetTabs, setSheetTabs] = useState([]);
   const [preview, setPreview] = useState(null);
   const [companyInput, setCompanyInput] = useState('');
   const [positionInput, setPositionInput] = useState('');
-  const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -132,7 +155,9 @@ export default function App() {
         return;
       }
 
-      const spreadsheetId = resolvePreviewSpreadsheetId(nextSettings);
+      const spreadsheetId = nextSettings.selectedSheet?.spreadsheetId || null;
+      setPreviewSpreadsheetId(spreadsheetId || '');
+
       if (spreadsheetId) {
         const tabsData = await fetchSheetTabs(
           workingSession.platformToken,
@@ -180,7 +205,7 @@ export default function App() {
 
   async function handleSignIn() {
     setError('');
-    setStatus('Signing in…');
+    const toastId = toast.loading('Signing in…');
     try {
       const tokenResult = await requestGoogleAccessTokenInteractive(
         authConfig.googleClientId,
@@ -196,9 +221,10 @@ export default function App() {
       saveSession(nextSession);
       setSession(nextSession);
       setSettings(data.settings || null);
-      setStatus('Signed in.');
+      toast.success('Signed in.', { id: toastId });
       await refreshDashboard(nextSession);
     } catch (err) {
+      toast.dismiss(toastId);
       const message = err?.message || 'Google sign-in failed.';
       if (/origin|invalid_client|401/i.test(message)) {
         setError(
@@ -207,7 +233,6 @@ export default function App() {
       } else {
         setError(message);
       }
-      setStatus('');
     }
   }
 
@@ -220,9 +245,9 @@ export default function App() {
     setNewSheetName('');
     setNewSheetUrl('');
     setShowAddSpreadsheetForm(false);
+    setPreviewSpreadsheetId('');
     setSheetTabs([]);
     setPreview(null);
-    setStatus('');
     setError('');
     setActiveView('spreadsheets');
   }
@@ -246,7 +271,7 @@ export default function App() {
 
     setSaving(true);
     setError('');
-    setStatus('Saving…');
+    const toastId = toast.loading('Saving…');
     try {
       const entry = {
         name,
@@ -264,10 +289,10 @@ export default function App() {
       setNewSheetName('');
       setNewSheetUrl('');
       setShowAddSpreadsheetForm(false);
-      setStatus('Spreadsheet registered.');
+      toast.success('Spreadsheet registered.', { id: toastId });
     } catch (err) {
+      toast.dismiss(toastId);
       setError(err.message);
-      setStatus('');
     } finally {
       setSaving(false);
     }
@@ -289,7 +314,45 @@ export default function App() {
         registeredSpreadsheets
       });
       setSettings(data.settings);
-      setStatus('Spreadsheet removed.');
+      toast.success('Spreadsheet removed.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSpreadsheetChange(spreadsheetId) {
+    if (!session || !settings) {
+      return;
+    }
+
+    setPreviewSpreadsheetId(spreadsheetId);
+    setPreview(null);
+    setSheetTabs([]);
+    setError('');
+
+    if (!spreadsheetId) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const tabsData = await fetchSheetTabs(
+        session.platformToken,
+        session.googleAccessToken,
+        spreadsheetId
+      );
+      setSheetTabs(tabsData.sheets || []);
+
+      if (settings.selectedSheet?.spreadsheetId !== spreadsheetId) {
+        const data = await saveSettings(session.platformToken, session.googleAccessToken, {
+          ...settingsPayload(settings),
+          selectedSheet: null
+        });
+        setSettings(data.settings);
+      }
+      toast.success('Spreadsheet selected. Choose a sheet tab to preview.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -302,13 +365,18 @@ export default function App() {
       return;
     }
 
+    const spreadsheetId = previewSpreadsheetId || settings.selectedSheet?.spreadsheetId;
+    if (!spreadsheetId) {
+      return;
+    }
+
     const match = sheetTabs.find((tab) => String(tab.id) === String(sheetId));
     if (!match) {
       return;
     }
 
     const selectedSheet = {
-      spreadsheetId: resolvePreviewSpreadsheetId(settings),
+      spreadsheetId,
       sheetId: String(match.sheetId ?? match.id),
       sheetName: String(match.sheetName ?? match.name),
       id: String(match.id ?? match.sheetId),
@@ -330,7 +398,7 @@ export default function App() {
         selectedSheet.spreadsheetId
       );
       setPreview(previewData.preview || null);
-      setStatus('Target tab updated.');
+      toast.success('Target tab updated.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -373,7 +441,7 @@ export default function App() {
         filters
       });
       setSettings(data.settings);
-      setStatus('Filters updated.');
+      toast.success('Filters updated.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -418,7 +486,7 @@ export default function App() {
   if (!session) {
     return (
       <div className="page login-page">
-        <div className="card login-card">
+        <div className="login-card">
           <h1>Job Info Copier</h1>
           <p className="subhead">Manage your spreadsheets, filters, and registered jobs.</p>
           {error ? <p className="alert alert-error">{error}</p> : null}
@@ -458,35 +526,53 @@ export default function App() {
     settings?.selectedSheet?.sheetId || settings?.selectedSheet?.id || '';
 
   return (
-    <div className="page">
-      <header className="topbar">
-        <div>
-          <h1>Job Info Copier</h1>
-          <p className="subhead">Signed in as {session.user?.email}</p>
+    <div className="page page-dashboard">
+      <header className="app-header">
+        <div className="app-header-top">
+          <div className="app-brand">
+            <span className="app-brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3z" />
+                <path d="M5 5h6v2H7v10h10v-4h2v6H5V5z" />
+              </svg>
+            </span>
+            <div className="app-brand-text">
+              <h1>Job Info Copier</h1>
+              <p className="app-tagline">Manage spreadsheets, filters, and job previews</p>
+            </div>
+          </div>
+
+          <div className="app-user">
+            <div className="user-chip" title={session.user?.email}>
+              <span className="user-avatar">{userInitial(session.user?.email)}</span>
+              <span className="user-email">{session.user?.email}</span>
+            </div>
+            <button type="button" className="btn btn-ghost" onClick={handleSignOut}>
+              Sign out
+            </button>
+          </div>
         </div>
-        <button type="button" className="btn btn-link" onClick={handleSignOut}>
-          Sign out
-        </button>
+
+        <nav className="app-nav" aria-label="Dashboard sections">
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`app-nav-link${activeView === item.id ? ' app-nav-link-active' : ''}`}
+              onClick={() => setActiveView(item.id)}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
       </header>
 
-      <nav className="navbar" aria-label="Dashboard sections">
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`navbar-link${activeView === item.id ? ' navbar-link-active' : ''}`}
-            onClick={() => setActiveView(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-
+      <main className={`app-main${activeView === 'preview' ? ' app-main-preview' : ''}`}>
       {error ? <p className="alert alert-error">{error}</p> : null}
-      {status ? <p className="alert alert-ok">{status}</p> : null}
 
       {activeView === 'spreadsheets' ? (
-        <section className="card">
+        <section>
           <div className="section-header">
             <h2>Spreadsheets</h2>
             <button
@@ -576,7 +662,7 @@ export default function App() {
       ) : null}
 
       {activeView === 'filters' ? (
-        <section className="card">
+        <section>
           <h2>Skip filters</h2>
           <p className="hint">These filters sync to the Chrome extension for auto-copy.</p>
           <div className="filter-grid">
@@ -651,81 +737,105 @@ export default function App() {
       ) : null}
 
       {activeView === 'preview' ? (
-        <section className="card">
-          <div className="section-header">
+        <section className="preview-section">
+          <div className="preview-toolbar">
             <h2>Sheet preview</h2>
-            {preview?.sheetName ? <span className="badge">{preview.sheetName}</span> : null}
-            {settings?.selectedSheet?.spreadsheetId ? (
-              <span className="badge badge-muted">
-                {settings.registeredSpreadsheets?.find(
-                  (entry) => entry.spreadsheetId === settings.selectedSheet.spreadsheetId
-                )?.name || settings.selectedSheet.spreadsheetId}
-              </span>
-            ) : null}
+            <div className="preview-control preview-control-spreadsheet">
+              <label className="preview-label" htmlFor="preview-spreadsheet">
+                Spreadsheet
+              </label>
+              <select
+                id="preview-spreadsheet"
+                className="preview-select"
+                value={previewSpreadsheetId}
+                onChange={(event) => void handleSpreadsheetChange(event.target.value)}
+                disabled={!(settings?.registeredSpreadsheets || []).length || saving}
+                title="Choose a registered Google spreadsheet"
+              >
+                <option value="">
+                  {(settings?.registeredSpreadsheets || []).length
+                    ? 'Select spreadsheet'
+                    : 'Register a spreadsheet first'}
+                </option>
+                {(settings?.registeredSpreadsheets || []).map((entry) => (
+                  <option key={entry.spreadsheetId} value={entry.spreadsheetId}>
+                    {entry.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <label className="label" htmlFor="preview-sheet-tab">
-            Target sheet tab
-          </label>
-          <p className="hint">
-            Choose which tab receives copied jobs. This syncs to the Chrome extension.
-          </p>
-          <select
-            id="preview-sheet-tab"
-            value={selectedTabId}
-            onChange={(event) => handleTabChange(event.target.value)}
-            disabled={!sheetTabs.length || saving}
-          >
-            <option value="">
-              {sheetTabs.length
-                ? '— Select tab —'
-                : '— Select a spreadsheet in the Chrome extension —'}
-            </option>
-            {sheetTabs.map((tab) => (
-              <option key={tab.id} value={tab.id}>
-                {tab.name}
-              </option>
-            ))}
-          </select>
-
-          {!preview ? (
-            <p className="muted">
-              Select a spreadsheet in the Chrome extension, then choose a tab here to preview rows.
-            </p>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    {preview.headers.map((header, index) => (
-                      <th key={`header-${index}`}>{header}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.rows.length ? (
-                    preview.rows.map((row, rowIndex) => (
-                      <tr key={`row-${rowIndex}`}>
-                        {preview.headers.map((_, cellIndex) => (
-                          <td key={`cell-${rowIndex}-${cellIndex}`}>
-                            {row[cellIndex] ?? ''}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : (
+          <div className="preview-workspace">
+            <div className="table-wrap preview-table-wrap">
+              {!previewSpreadsheetId ? (
+                <p className="preview-empty muted">Select a spreadsheet to begin.</p>
+              ) : !selectedTabId ? (
+                <p className="preview-empty muted">Choose a sheet tab below to preview rows.</p>
+              ) : !preview ? (
+                <p className="preview-empty muted">Loading preview…</p>
+              ) : (
+                <table>
+                  <thead>
                     <tr>
-                      <td colSpan={preview.headers.length} className="muted">
-                        No job rows yet.
-                      </td>
+                      {preview.headers.map((header, index) => (
+                        <th key={`header-${index}`}>{header}</th>
+                      ))}
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {preview.rows.length ? (
+                      preview.rows.map((row, rowIndex) => (
+                        <tr key={`row-${rowIndex}`}>
+                          {preview.headers.map((_, cellIndex) => (
+                            <td key={`cell-${rowIndex}-${cellIndex}`}>
+                              {row[cellIndex] ?? ''}
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={preview.headers.length} className="muted">
+                          No job rows yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
-          )}
+
+            <div className="sheet-tabs-bar" role="tablist" aria-label="Sheet tabs">
+              {previewSpreadsheetId && sheetTabs.length > 0 ? (
+                sheetTabs.map((tab) => {
+                  const tabId = String(tab.id);
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={selectedTabId === tabId}
+                      className={`sheet-tab${selectedTabId === tabId ? ' sheet-tab-active' : ''}`}
+                      onClick={() => void handleTabChange(tabId)}
+                      disabled={saving}
+                    >
+                      {tab.name ?? tab.sheetName}
+                    </button>
+                  );
+                })
+              ) : (
+                <span className="sheet-tabs-empty muted">
+                  {!previewSpreadsheetId
+                    ? 'Select a spreadsheet to load sheet tabs'
+                    : 'Loading sheet tabs…'}
+                </span>
+              )}
+            </div>
+          </div>
         </section>
       ) : null}
+      </main>
     </div>
   );
 }
